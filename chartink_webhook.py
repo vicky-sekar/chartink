@@ -31,7 +31,7 @@ def send_telegram_message(text):
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
         "parse_mode": "Markdown",
-        "disable_web_page_preview": True   # prevents big preview block
+        "disable_web_page_preview": True
     }
     requests.get(url, params=payload)
 
@@ -76,7 +76,6 @@ def chartink_webhook():
         return jsonify({
             "error": "Unauthorized. Please contact the admin to access the webhook backend service."
         }), 403
-    # -------------------------------
 
     # Extract values
     stocks = data.get("stocks", "")
@@ -107,15 +106,14 @@ def chartink_webhook():
     # Get scan link
     scan_link = SCAN_LINKS.get(scan_name, "https://chartink.com")
 
-    # Construct Telegram message with Option C
+    # Construct Telegram message (Removed last line)
     message = (
         f"📢 *ChartInk Alert Triggered*\n\n"
         f"📄 *Scan:* {scan_name}\n"
-        f"➡️ [Scan Link]({scan_link})\n"   # <── Option C icon-style link
+        f"➡️ [Scan Link]({scan_link})\n"
         f"⏰ *Time:* {time}\n\n"
         f"📊 *Triggered Stocks*\n"
-        f"{stock_block}\n\n"
-        f"🔎 More details available inside ChartInk."
+        f"{stock_block}"
     )
 
     send_telegram_message(message)

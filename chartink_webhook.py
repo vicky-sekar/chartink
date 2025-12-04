@@ -5,12 +5,18 @@ import os
 app = Flask(__name__)
 
 # -------------------------------
-# SECURITY TOKEN (Added as requested)
+# SECURITY TOKEN
 # -------------------------------
 SECRET_TOKEN = "Vickybot@123"
 
 TELEGRAM_BOT_TOKEN = "6574679913:AAEiUSOAoAArSvVaZ09Mc8uaisJHJN2JKHo"
 TELEGRAM_CHAT_ID = "-1002313311833"
+
+# Allowed scan names
+ALLOWED_SCANS = [
+    "15 min MACD CROSSOVER",
+    "vicky bullish scans"
+]
 
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -30,17 +36,40 @@ def chartink_webhook():
     # -------------------------------
     token = request.args.get("token")
     if token != SECRET_TOKEN:
-        return jsonify({"error": "Unauthorized"}), 403
-    # -------------------------------
+        send_telegram_message("❌ *Unauthorized request*\nToken is invalid.\nPlease contact admin.")
+        return jsonify({
+            "error": "Unauthorized. Please contact the admin to access the webhook backend service."
+        }), 403
 
     data = request.json
     print(data)
+
+    # Extract scan name
+    scan_name = data.get("scan_name", "").strip()
+
+    # -------------------------------
+    # SCAN NAME VALIDATION
+    # -------------------------------
+    if scan_name not in ALLOWED_SCANS:
+
+        unauth_msg = (
+            f"❌ *Unauthorized Alert Detected*\n\n"
+            f"🔍 *Scan Name:* {scan_name}\n"
+            "⚠️ This scan is not authorized to access the webhook backend service.\n"
+            "Please contact the admin."
+        )
+
+        send_telegram_message(unauth_msg)
+
+        return jsonify({
+            "error": "Unauthorized. Please contact the admin to access the webhook backend service."
+        }), 403
+    # -------------------------------
 
     # Extract values
     stocks = data.get("stocks", "")
     prices = data.get("trigger_prices", "")
     time = data.get("triggered_at", "")
-    scan_name = data.get("scan_name", "")
 
     # Lists
     stock_list = [s.strip() for s in stocks.split(",")]

@@ -18,6 +18,13 @@ ALLOWED_SCANS = [
     "vicky bullish scans"
 ]
 
+# ChartInk Scan Links
+SCAN_LINKS = {
+    "15 min MACD CROSSOVER": "https://chartink.com/screener/15-min-macd-crossover-74",
+    "vicky bullish scans": "https://chartink.com/screener/vicky-bullish-scans-3"
+}
+
+
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -36,7 +43,11 @@ def chartink_webhook():
     # -------------------------------
     token = request.args.get("token")
     if token != SECRET_TOKEN:
-        send_telegram_message("❌ *Unauthorized request*\nToken is invalid.\nPlease contact admin.")
+        send_telegram_message(
+            "❌ *Unauthorized Request*\n"
+            "Invalid token used.\n"
+            "Please contact the admin."
+        )
         return jsonify({
             "error": "Unauthorized. Please contact the admin to access the webhook backend service."
         }), 403
@@ -81,13 +92,18 @@ def chartink_webhook():
     ]
     stock_block = "\n".join(stock_lines)
 
+    # Get the correct scan link
+    scan_link = SCAN_LINKS.get(scan_name, "https://chartink.com")
+
+    # Telegram message content
     message = (
         f"📢 *ChartInk Alert Triggered*\n\n"
         f"📄 *Scan:* {scan_name}\n"
+        f"🔗 [Open Scan]({scan_link})\n"
         f"⏰ *Time:* {time}\n\n"
         f"📊 *Triggered Stocks*\n"
         f"{stock_block}\n\n"
-        f"🔎 More details inside ChartInk."
+        f"🔎 More details available inside ChartInk."
     )
 
     send_telegram_message(message)

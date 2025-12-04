@@ -5,7 +5,7 @@ import os
 app = Flask(__name__)
 
 TELEGRAM_BOT_TOKEN = "6574679913:AAEiUSOAoAArSvVaZ09Mc8uaisJHJN2JKHo"
-TELEGRAM_CHAT_ID = "-1001960176951"
+TELEGRAM_CHAT_ID = "-1002313311833"
 
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -19,7 +19,7 @@ def send_telegram_message(text):
 @app.route("/chartink", methods=["POST"])
 def chartink_webhook():
     data = request.json
-
+    print(data)
     # Extract values
     stocks = data.get("stocks", "")
     prices = data.get("trigger_prices", "")

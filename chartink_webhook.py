@@ -30,7 +30,8 @@ def send_telegram_message(text):
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
-        "parse_mode": "Markdown"
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True   # <── Hides big preview card
     }
     requests.get(url, params=payload)
 
@@ -95,11 +96,11 @@ def chartink_webhook():
     # Get the correct scan link
     scan_link = SCAN_LINKS.get(scan_name, "https://chartink.com")
 
-    # Telegram message content
+    # Telegram message content with short icon-style link
     message = (
         f"📢 *ChartInk Alert Triggered*\n\n"
         f"📄 *Scan:* {scan_name}\n"
-        f"🔗 [Open Scan]({scan_link})\n"
+        f"🔗 [Open Scan]({scan_link})\n"    # Short clickable icon link
         f"⏰ *Time:* {time}\n\n"
         f"📊 *Triggered Stocks*\n"
         f"{stock_block}\n\n"

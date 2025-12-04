@@ -31,7 +31,7 @@ def send_telegram_message(text):
         "chat_id": TELEGRAM_CHAT_ID,
         "text": text,
         "parse_mode": "Markdown",
-        "disable_web_page_preview": True   # <── Hides big preview card
+        "disable_web_page_preview": True   # prevents big preview block
     }
     requests.get(url, params=payload)
 
@@ -83,24 +83,35 @@ def chartink_webhook():
     prices = data.get("trigger_prices", "")
     time = data.get("triggered_at", "")
 
-    # Lists
+    # Prepare stock list
     stock_list = [s.strip() for s in stocks.split(",")]
     price_list = [p.strip() for p in prices.split(",")]
 
-    stock_lines = [
-        f"{idx}. *{s}* — ₹{p}"
-        for idx, (s, p) in enumerate(zip(stock_list, price_list), start=1)
-    ]
+    stock_lines = []
+    for idx, (s, p) in enumerate(zip(stock_list, price_list), start=1):
+        try:
+            price = int(float(p))              # No decimal places
+            sl = int(round(price * 0.98))      # 2% Stop Loss
+            target = int(round(price * 1.05))  # 5% Target
+        except:
+            price = sl = target = 0
+
+        stock_lines.append(
+            f"{idx}. *{s}* — ₹{price}\n"
+            f"   🎯 *Target:* ₹{target}\n"
+            f"   🛑 *Stop Loss:* ₹{sl}"
+        )
+
     stock_block = "\n".join(stock_lines)
 
-    # Get the correct scan link
+    # Get scan link
     scan_link = SCAN_LINKS.get(scan_name, "https://chartink.com")
 
-    # Telegram message content with short icon-style link
+    # Construct Telegram message with Option C
     message = (
         f"📢 *ChartInk Alert Triggered*\n\n"
         f"📄 *Scan:* {scan_name}\n"
-        f"🔗 [Open Scan]({scan_link})\n"    # Short clickable icon link
+        f"➡️ [Scan Link]({scan_link})\n"   # <── Option C icon-style link
         f"⏰ *Time:* {time}\n\n"
         f"📊 *Triggered Stocks*\n"
         f"{stock_block}\n\n"

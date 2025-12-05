@@ -5,7 +5,22 @@ import os
 app = Flask(__name__)
 
 # -------------------------------
-# SECURITY TOKEN
+# 5PAISA OAUTH CALLBACK (ADD THIS)
+# -------------------------------
+@app.route('/auth/callback', methods=['GET'])
+def callback():
+    # Extract RequestToken sent by 5paisa OAuth redirect
+    request_token = request.args.get('RequestToken')
+
+    # Log to console (copy this token into your Python SDK)
+    print("🔑 5paisa RequestToken:", request_token)
+
+    # Show browser message
+    return "5paisa Request Token received successfully. You can close this window."
+
+
+# -------------------------------
+# SECURITY TOKEN FOR CHARTINK
 # -------------------------------
 SECRET_TOKEN = "Vickybot@123"
 
@@ -36,6 +51,9 @@ def send_telegram_message(text):
     requests.get(url, params=payload)
 
 
+# -------------------------------
+# CHARTINK WEBHOOK ENDPOINT
+# -------------------------------
 @app.route("/chartink", methods=["POST"])
 def chartink_webhook():
 
@@ -89,7 +107,7 @@ def chartink_webhook():
     stock_lines = []
     for idx, (s, p) in enumerate(zip(stock_list, price_list), start=1):
         try:
-            price = int(float(p))              # No decimal places
+            price = int(float(p))              # No decimals
             sl = int(round(price * 0.98))      # 2% Stop Loss
             target = int(round(price * 1.05))  # 5% Target
         except:
@@ -103,10 +121,8 @@ def chartink_webhook():
 
     stock_block = "\n".join(stock_lines)
 
-    # Get scan link
     scan_link = SCAN_LINKS.get(scan_name, "https://chartink.com")
 
-    # Construct Telegram message (Removed last line)
     message = (
         f"📢 *ChartInk Alert Triggered*\n\n"
         f"📄 *Scan:* {scan_name}\n"
@@ -121,6 +137,9 @@ def chartink_webhook():
     return jsonify({"status": "success", "received": data})
 
 
+# -------------------------------
+# START SERVER
+# -------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)

@@ -4,24 +4,31 @@ import os
 
 app = Flask(__name__)
 
-# -------------------------------
-# 5PAISA OAUTH CALLBACK (ADD THIS)
-# -------------------------------
+# ---------------------------------------------------
+# 5PAISA OAUTH CALLBACK - RETURNS JSON ONLY
+# ---------------------------------------------------
 @app.route('/auth/callback', methods=['GET'])
 def callback():
-    # Extract RequestToken sent by 5paisa OAuth redirect
+    # Extract RequestToken from redirect URL
     request_token = request.args.get('RequestToken')
 
-    # Log to console (copy this token into your Python SDK)
-    print("🔑 5paisa RequestToken:", request_token)
+    # If token missing
+    if not request_token:
+        return jsonify({
+            "status": "error",
+            "message": "RequestToken not found in URL"
+        }), 400
 
-    # Show browser message
-    return "5paisa Request Token received successfully. You can close this window."
+    # Return token as JSON response
+    return jsonify({
+        "status": "success",
+        "request_token": request_token
+    }), 200
 
 
-# -------------------------------
-# SECURITY TOKEN FOR CHARTINK
-# -------------------------------
+# ---------------------------------------------------
+# SECURITY TOKEN FOR CHARTINK WEBHOOK
+# ---------------------------------------------------
 SECRET_TOKEN = "Vickybot@123"
 
 TELEGRAM_BOT_TOKEN = "6574679913:AAEiUSOAoAArSvVaZ09Mc8uaisJHJN2JKHo"
@@ -51,25 +58,19 @@ def send_telegram_message(text):
     requests.get(url, params=payload)
 
 
-# -------------------------------
+# ---------------------------------------------------
 # CHARTINK WEBHOOK ENDPOINT
-# -------------------------------
+# ---------------------------------------------------
 @app.route("/chartink", methods=["POST"])
 def chartink_webhook():
 
-    # -------------------------------
     # TOKEN VALIDATION
-    # -------------------------------
     token = request.args.get("token")
     if token != SECRET_TOKEN:
         send_telegram_message(
-            "❌ *Unauthorized Request*\n"
-            "Invalid token used.\n"
-            "Please contact the admin."
+            "❌ *Unauthorized Request*\nInvalid token used.\nPlease contact the admin."
         )
-        return jsonify({
-            "error": "Unauthorized. Please contact the admin to access the webhook backend service."
-        }), 403
+        return jsonify({"error": "Unauthorized"}), 403
 
     data = request.json
     print(data)
@@ -77,39 +78,30 @@ def chartink_webhook():
     # Extract scan name
     scan_name = data.get("scan_name", "").strip()
 
-    # -------------------------------
-    # SCAN NAME VALIDATION
-    # -------------------------------
     if scan_name not in ALLOWED_SCANS:
-
         unauth_msg = (
             f"❌ *Unauthorized Alert Detected*\n\n"
-            f"🔍 *Scan Name:* {scan_name}\n"
-            "⚠️ This scan is not authorized to access the webhook backend service.\n"
-            "Please contact the admin."
+            f"🔍 *Scan:* {scan_name}\n"
+            f"⚠️ This scan is not authorized.\n"
+            f"Please contact the admin."
         )
-
         send_telegram_message(unauth_msg)
-
-        return jsonify({
-            "error": "Unauthorized. Please contact the admin to access the webhook backend service."
-        }), 403
+        return jsonify({"error": "Unauthorized"}), 403
 
     # Extract values
     stocks = data.get("stocks", "")
     prices = data.get("trigger_prices", "")
     time = data.get("triggered_at", "")
 
-    # Prepare stock list
     stock_list = [s.strip() for s in stocks.split(",")]
     price_list = [p.strip() for p in prices.split(",")]
 
     stock_lines = []
     for idx, (s, p) in enumerate(zip(stock_list, price_list), start=1):
         try:
-            price = int(float(p))              # No decimals
-            sl = int(round(price * 0.98))      # 2% Stop Loss
-            target = int(round(price * 1.05))  # 5% Target
+            price = int(float(p))
+            sl = int(round(price * 0.98))
+            target = int(round(price * 1.05))
         except:
             price = sl = target = 0
 
@@ -120,7 +112,6 @@ def chartink_webhook():
         )
 
     stock_block = "\n".join(stock_lines)
-
     scan_link = SCAN_LINKS.get(scan_name, "https://chartink.com")
 
     message = (
@@ -137,9 +128,9 @@ def chartink_webhook():
     return jsonify({"status": "success", "received": data})
 
 
-# -------------------------------
+# ---------------------------------------------------
 # START SERVER
-# -------------------------------
+# ---------------------------------------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)

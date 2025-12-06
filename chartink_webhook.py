@@ -11,13 +11,12 @@ SAVED_REQUEST_TOKEN = None
 
 
 # ---------------------------------------------------
-# 5PAISA OAUTH CALLBACK - ALWAYS RETURNS CLEAN JSON
+# 5PAISA OAUTH CALLBACK
 # ---------------------------------------------------
 @app.route('/auth/callback', methods=['GET'])
 def callback():
     global SAVED_REQUEST_TOKEN
 
-    # Extract RequestToken from redirect URL
     request_token = request.args.get('RequestToken')
     all_params = request.args.to_dict()
 
@@ -28,7 +27,6 @@ def callback():
             "received_params": all_params
         }), 400
 
-    # STORE TOKEN IN MEMORY
     SAVED_REQUEST_TOKEN = request_token
 
     return jsonify({
@@ -52,22 +50,10 @@ def get_request_token():
 
 
 # ---------------------------------------------------
-# SECURITY TOKEN FOR CHARTINK WEBHOOK
+# TELEGRAM CONFIG
 # ---------------------------------------------------
-SECRET_TOKEN = "Vickybot@123"
-
 TELEGRAM_BOT_TOKEN = "6574679913:AAEiUSOAoAArSvVaZ09Mc8uaisJHJN2JKHo"
 TELEGRAM_CHAT_ID = "-1001960176951"
-
-ALLOWED_SCANS = [
-    "15 min MACD CROSSOVER",
-    "vicky bullish scans"
-]
-
-SCAN_LINKS = {
-    "15 min MACD CROSSOVER": "https://chartink.com/screener/15-min-macd-crossover-74",
-    "vicky bullish scans": "https://chartink.com/screener/vicky-bullish-scans-3"
-}
 
 
 def send_telegram_message(text):
@@ -82,30 +68,17 @@ def send_telegram_message(text):
 
 
 # ---------------------------------------------------
-# CHARTINK WEBHOOK ENDPOINT
+# CHARTINK WEBHOOK (NO TOKEN CHECK, NO SCAN VALIDATION)
 # ---------------------------------------------------
 @app.route("/chartink", methods=["POST"])
 def chartink_webhook():
-    token = request.args.get("token")
-    if token != SECRET_TOKEN:
-        send_telegram_message(
-            "❌ *Unauthorized Request*\nInvalid token used.\nPlease contact the admin."
-        )
-        return jsonify({"error": "Unauthorized"}), 403
-
     data = request.json
     print(data)
-    scan_name = data.get("scan_name", "").strip()
-
-    if scan_name not in ALLOWED_SCANS:
-        send_telegram_message(
-            f"❌ *Unauthorized Alert*\nScan: {scan_name}"
-        )
-        return jsonify({"error": "Unauthorized"}), 403
 
     stocks = data.get("stocks", "")
     prices = data.get("trigger_prices", "")
     time = data.get("triggered_at", "")
+    scan_name = data.get("scan_name", "")
 
     stock_list = [s.strip() for s in stocks.split(",")]
     price_list = [p.strip() for p in prices.split(",")]
@@ -126,12 +99,10 @@ def chartink_webhook():
         )
 
     stock_block = "\n".join(stock_lines)
-    scan_link = SCAN_LINKS.get(scan_name, "#")
 
     send_telegram_message(
         f"📢 *ChartInk Alert Triggered*\n\n"
         f"📄 *Scan:* {scan_name}\n"
-        f"➡️ [{scan_link}]({scan_link})\n"
         f"⏰ *Time:* {time}\n\n"
         f"{stock_block}"
     )

@@ -1,26 +1,84 @@
 from flask import Flask, request, jsonify
 import requests
 import os
-import datetime
 
 app = Flask(__name__)
 
 # ---------------------------------------------------
-# TIME FILTER FUNCTION
+# IN-MEMORY TOKEN STORAGE (AUTO CLEARS ON RESTART)
 # ---------------------------------------------------
-def is_allowed_time():
-    now = datetime.datetime.now().time()
+SAVED_REQUEST_TOKEN = None
 
-    # Window 1: 9:15 AM – 10:30 AM
-    morning_start = datetime.time(9, 15)
-    morning_end   = datetime.time(10, 30)
 
-    # Window 2: 1:00 PM – 2:00 PM
-    noon_start = datetime.time(13, 0)
-    noon_end   = datetime.time(14, 0)
+# ---------------------------------------------------
+# 5PAISA OAUTH CALLBACK - ALWAYS RETURNS CLEAN JSON
+# ---------------------------------------------------
+@app.route('/auth/callback', methods=['GET'])
+def callback():
+    global SAVED_REQUEST_TOKEN
 
-    return (morning_start <= now <= morning_end) or \
-           (noon_start <= now <= noon_end)
+    # Extract RequestToken from redirect URL
+    request_token = request.args.get('RequestToken')
+    all_params = request.args.to_dict()
+
+    if not request_token:
+        return jsonify({
+            "status": "error",
+            "message": "RequestToken not found in URL",
+            "received_params": all_params
+        }), 400
+
+    # STORE TOKEN IN MEMORY
+    SAVED_REQUEST_TOKEN = request_token
+
+    return jsonify({
+        "status": "success",
+        "message": "Token received",
+        "request_token": request_token
+    }), 200
+
+
+# ---------------------------------------------------
+# ENDPOINT FOR LOCAL PYTHON TO FETCH TOKEN
+# ---------------------------------------------------
+@app.route("/get-request-token", methods=["GET"])
+def get_request_token():
+    global SAVED_REQUEST_TOKEN
+
+    if not SAVED_REQUEST_TOKEN:
+        return jsonify({"error": "No RequestToken received yet"}), 404
+
+    return jsonify({"request_token": SAVED_REQUEST_TOKEN}), 200
+
+
+# ---------------------------------------------------
+# SECURITY TOKEN FOR CHARTINK WEBHOOK
+# ---------------------------------------------------
+SECRET_TOKEN = "Vickybot@123"
+
+TELEGRAM_BOT_TOKEN = "6574679913:AAEiUSOAoAArSvVaZ09Mc8uaisJHJN2JKHo"
+TELEGRAM_CHAT_ID = "-1001960176951"
+
+ALLOWED_SCANS = [
+    "15 min MACD CROSSOVER",
+    "vicky bullish scans"
+]
+
+SCAN_LINKS = {
+    "15 min MACD CROSSOVER": "https://chartink.com/screener/15-min-macd-crossover-74",
+    "vicky bullish scans": "https://chartink.com/screener/vicky-bullish-scans-3"
+}
+
+
+def send_telegram_message(text):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
+    requests.get(url, params=payload)
 
 
 # ---------------------------------------------------
@@ -45,14 +103,6 @@ def chartink_webhook():
         )
         return jsonify({"error": "Unauthorized"}), 403
 
-    # ---------------------------------------------------
-    # ⏰ TIME CHECK — BLOCK ALERT OUTSIDE ALLOWED WINDOWS
-    # ---------------------------------------------------
-    if not is_allowed_time():
-        print("⛔ Alert ignored — outside allowed time window")
-        return jsonify({"status": "ignored_outside_time"}), 200
-
-    # CONTINUE WITH NORMAL LOGIC
     stocks = data.get("stocks", "")
     prices = data.get("trigger_prices", "")
     time = data.get("triggered_at", "")
@@ -87,3 +137,11 @@ def chartink_webhook():
     )
 
     return jsonify({"status": "success", "received": data})
+
+
+# ---------------------------------------------------
+# START SERVER
+# ---------------------------------------------------
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)

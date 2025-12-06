@@ -5,24 +5,30 @@ import os
 app = Flask(__name__)
 
 # ---------------------------------------------------
-# 5PAISA OAUTH CALLBACK - RETURNS JSON ONLY
+# 5PAISA OAUTH CALLBACK - ALWAYS RETURNS CLEAN JSON
 # ---------------------------------------------------
 @app.route('/auth/callback', methods=['GET'])
 def callback():
     # Extract RequestToken from redirect URL
     request_token = request.args.get('RequestToken')
 
+    # Get all params for debugging (optional)
+    all_params = request.args.to_dict()
+
     # If token missing
     if not request_token:
         return jsonify({
             "status": "error",
-            "message": "RequestToken not found in URL"
+            "message": "RequestToken not found in URL",
+            "received_params": all_params
         }), 400
 
-    # Return token as JSON response
+    # Return clean JSON
     return jsonify({
         "status": "success",
-        "request_token": request_token
+        "message": "Token received",
+        "request_token": request_token,
+        "received_params": all_params
     }), 200
 
 

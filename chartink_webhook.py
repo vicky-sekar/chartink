@@ -5,17 +5,22 @@ import os
 app = Flask(__name__)
 
 # ---------------------------------------------------
+# IN-MEMORY TOKEN STORAGE (AUTO CLEARS ON RESTART)
+# ---------------------------------------------------
+SAVED_REQUEST_TOKEN = None
+
+
+# ---------------------------------------------------
 # 5PAISA OAUTH CALLBACK - ALWAYS RETURNS CLEAN JSON
 # ---------------------------------------------------
 @app.route('/auth/callback', methods=['GET'])
 def callback():
+    global SAVED_REQUEST_TOKEN
+
     # Extract RequestToken from redirect URL
     request_token = request.args.get('RequestToken')
-
-    # Get all params for debugging (optional)
     all_params = request.args.to_dict()
 
-    # If token missing
     if not request_token:
         return jsonify({
             "status": "error",
@@ -23,13 +28,27 @@ def callback():
             "received_params": all_params
         }), 400
 
-    # Return clean JSON
+    # STORE TOKEN IN MEMORY
+    SAVED_REQUEST_TOKEN = request_token
+
     return jsonify({
         "status": "success",
         "message": "Token received",
-        "request_token": request_token,
-        "received_params": all_params
+        "request_token": request_token
     }), 200
+
+
+# ---------------------------------------------------
+# ENDPOINT FOR LOCAL PYTHON TO FETCH TOKEN
+# ---------------------------------------------------
+@app.route("/get-request-token", methods=["GET"])
+def get_request_token():
+    global SAVED_REQUEST_TOKEN
+
+    if not SAVED_REQUEST_TOKEN:
+        return jsonify({"error": "No RequestToken received yet"}), 404
+
+    return jsonify({"request_token": SAVED_REQUEST_TOKEN}), 200
 
 
 # ---------------------------------------------------
@@ -40,13 +59,11 @@ SECRET_TOKEN = "Vickybot@123"
 TELEGRAM_BOT_TOKEN = "6574679913:AAEiUSOAoAArSvVaZ09Mc8uaisJHJN2JKHo"
 TELEGRAM_CHAT_ID = "-1001960176951"
 
-# Allowed scan names
 ALLOWED_SCANS = [
     "15 min MACD CROSSOVER",
     "vicky bullish scans"
 ]
 
-# ChartInk Scan Links
 SCAN_LINKS = {
     "15 min MACD CROSSOVER": "https://chartink.com/screener/15-min-macd-crossover-74",
     "vicky bullish scans": "https://chartink.com/screener/vicky-bullish-scans-3"
@@ -69,8 +86,6 @@ def send_telegram_message(text):
 # ---------------------------------------------------
 @app.route("/chartink", methods=["POST"])
 def chartink_webhook():
-
-    # TOKEN VALIDATION
     token = request.args.get("token")
     if token != SECRET_TOKEN:
         send_telegram_message(
@@ -80,21 +95,14 @@ def chartink_webhook():
 
     data = request.json
     print(data)
-
-    # Extract scan name
     scan_name = data.get("scan_name", "").strip()
 
     if scan_name not in ALLOWED_SCANS:
-        unauth_msg = (
-            f"❌ *Unauthorized Alert Detected*\n\n"
-            f"🔍 *Scan:* {scan_name}\n"
-            f"⚠️ This scan is not authorized.\n"
-            f"Please contact the admin."
+        send_telegram_message(
+            f"❌ *Unauthorized Alert*\nScan: {scan_name}"
         )
-        send_telegram_message(unauth_msg)
         return jsonify({"error": "Unauthorized"}), 403
 
-    # Extract values
     stocks = data.get("stocks", "")
     prices = data.get("trigger_prices", "")
     time = data.get("triggered_at", "")
@@ -118,18 +126,15 @@ def chartink_webhook():
         )
 
     stock_block = "\n".join(stock_lines)
-    scan_link = SCAN_LINKS.get(scan_name, "https://chartink.com")
+    scan_link = SCAN_LINKS.get(scan_name, "#")
 
-    message = (
+    send_telegram_message(
         f"📢 *ChartInk Alert Triggered*\n\n"
         f"📄 *Scan:* {scan_name}\n"
-        f"➡️ [Scan Link]({scan_link})\n"
+        f"➡️ [{scan_link}]({scan_link})\n"
         f"⏰ *Time:* {time}\n\n"
-        f"📊 *Triggered Stocks*\n"
         f"{stock_block}"
     )
-
-    send_telegram_message(message)
 
     return jsonify({"status": "success", "received": data})
 

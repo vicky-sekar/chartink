@@ -68,7 +68,7 @@ def send_telegram_message(text):
 
 
 # ---------------------------------------------------
-# CHARTINK WEBHOOK (NO TOKEN CHECK, NO SCAN VALIDATION)
+# CHARTINK WEBHOOK (WITH SCAN NAME VALIDATION)
 # ---------------------------------------------------
 @app.route("/chartink", methods=["POST"])
 def chartink_webhook():
@@ -78,28 +78,54 @@ def chartink_webhook():
     stocks = data.get("stocks", "")
     prices = data.get("trigger_prices", "")
     time = data.get("triggered_at", "")
-    scan_name = data.get("scan_name", "")
+    scan_name = data.get("scan_name", "").strip()
 
     stock_list = [s.strip() for s in stocks.split(",")]
     price_list = [p.strip() for p in prices.split(",")]
 
     stock_lines = []
     for idx, (s, p) in enumerate(zip(stock_list, price_list), start=1):
+
         try:
-            price = int(float(p))
+            price = float(p)
+        except:
+            price = 0
+
+        # ---------------------------------------------------
+        # SCAN-NAME BASED TARGET / SL LOGIC
+        # ---------------------------------------------------
+        scan_lower = scan_name.lower()
+
+        if scan_lower == "nifty_15min_buy":
+            # BUY = Target +0.45% , SL -0.25%
+            target = round(price * 1.0045)
+            sl = round(price * 0.9975)
+
+        elif scan_lower == "nifty_15min_sell":
+            # SELL = Target -0.45% , SL +0.25%
+            target = round(price * 0.9955)
+            sl = round(price * 1.0025)
+
+        else:
+            # DEFAULT LOGIC
+            price = int(price)
             sl = int(round(price * 0.98))
             target = int(round(price * 1.05))
-        except:
-            price = sl = target = 0
 
+        # ---------------------------------------------------
+        # BUILD TELEGRAM MESSAGE BLOCK
+        # ---------------------------------------------------
         stock_lines.append(
-            f"{idx}. *{s}* — ₹{price}\n"
+            f"{idx}. *{s}* — ₹{int(price)}\n"
             f"   🎯 *Target:* ₹{target}\n"
             f"   🛑 *Stop Loss:* ₹{sl}"
         )
 
     stock_block = "\n".join(stock_lines)
 
+    # ---------------------------------------------------
+    # SEND TO TELEGRAM
+    # ---------------------------------------------------
     send_telegram_message(
         f"📢 *ChartInk Alert Triggered*\n\n"
         f"📄 *Scan:* {scan_name}\n"

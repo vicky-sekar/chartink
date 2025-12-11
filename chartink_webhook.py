@@ -53,13 +53,15 @@ def get_request_token():
 # TELEGRAM CONFIG
 # ---------------------------------------------------
 TELEGRAM_BOT_TOKEN = "6574679913:AAEiUSOAoAArSvVaZ09Mc8uaisJHJN2JKHo"
-TELEGRAM_CHAT_ID = "-1001960176951"
+
+CHAT_ID_MAIN = "-1001960176951"      # BUY / SELL signals
+CHAT_ID_DEFAULT = "-4891195470"      # All other scans
 
 
-def send_telegram_message(text):
+def send_telegram_message(text, chat_id):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "text": text,
         "parse_mode": "Markdown",
         "disable_web_page_preview": True
@@ -79,6 +81,15 @@ def chartink_webhook():
     prices = data.get("trigger_prices", "")
     time = data.get("triggered_at", "")
     scan_name = data.get("scan_name", "").strip()
+    scan_lower = scan_name.lower()
+
+    # ---------------------------------------------------
+    # SELECT CHAT ID BASED ON SCAN NAME
+    # ---------------------------------------------------
+    if scan_lower in ["nifty_15min_buy", "nifty_15min_sell"]:
+        chat_id = CHAT_ID_MAIN
+    else:
+        chat_id = CHAT_ID_DEFAULT
 
     stock_list = [s.strip() for s in stocks.split(",")]
     price_list = [p.strip() for p in prices.split(",")]
@@ -94,27 +105,19 @@ def chartink_webhook():
         # ---------------------------------------------------
         # SCAN-NAME BASED TARGET / SL LOGIC
         # ---------------------------------------------------
-        scan_lower = scan_name.lower()
-
         if scan_lower == "nifty_15min_buy":
-            # BUY = Target +0.45% , SL -0.25%
             target = round(price * 1.0045)
             sl = round(price * 0.9975)
 
         elif scan_lower == "nifty_15min_sell":
-            # SELL = Target -0.45% , SL +0.25%
             target = round(price * 0.9955)
             sl = round(price * 1.0025)
 
         else:
-            # DEFAULT LOGIC
             price = int(price)
             sl = int(round(price * 0.98))
             target = int(round(price * 1.05))
 
-        # ---------------------------------------------------
-        # BUILD TELEGRAM MESSAGE BLOCK
-        # ---------------------------------------------------
         stock_lines.append(
             f"{idx}. *{s}* — ₹{int(price)}\n"
             f"   🎯 *Target:* ₹{target}\n"
@@ -130,7 +133,8 @@ def chartink_webhook():
         f"📢 *ChartInk Alert Triggered*\n\n"
         f"📄 *Scan:* {scan_name}\n"
         f"⏰ *Time:* {time}\n\n"
-        f"{stock_block}"
+        f"{stock_block}",
+        chat_id
     )
 
     return jsonify({"status": "success", "received": data})

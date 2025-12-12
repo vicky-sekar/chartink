@@ -70,7 +70,7 @@ def send_telegram_message(text, chat_id):
 
 
 # ---------------------------------------------------
-# CHARTINK WEBHOOK (WITH SCAN NAME VALIDATION)
+# CHARTINK WEBHOOK (WITH PING LOGIC)
 # ---------------------------------------------------
 @app.route("/chartink", methods=["POST"])
 def chartink_webhook():
@@ -84,12 +84,17 @@ def chartink_webhook():
     scan_lower = scan_name.lower()
 
     # ---------------------------------------------------
-    # SELECT CHAT ID BASED ON SCAN NAME
+    # CASE 1: If NOT "nifty_15min_buy" or "nifty_15min_sell"
+    # → send only "ping" and exit
     # ---------------------------------------------------
-    if scan_lower in ["nifty_15min_buy", "nifty_15min_sell"]:
-        chat_id = CHAT_ID_MAIN
-    else:
-        chat_id = CHAT_ID_DEFAULT
+    if scan_lower not in ["nifty_15min_buy", "nifty_15min_sell"]:
+        send_telegram_message("ping", CHAT_ID_DEFAULT)
+        return jsonify({"status": "success", "message": "Ping sent"}), 200
+
+    # ---------------------------------------------------
+    # CASE 2: Valid BUY/SELL scan → normal full alert
+    # ---------------------------------------------------
+    chat_id = CHAT_ID_MAIN
 
     stock_list = [s.strip() for s in stocks.split(",")]
     price_list = [p.strip() for p in prices.split(",")]
@@ -102,9 +107,7 @@ def chartink_webhook():
         except:
             price = 0
 
-        # ---------------------------------------------------
-        # SCAN-NAME BASED TARGET / SL LOGIC
-        # ---------------------------------------------------
+        # BUY / SELL target logic
         if scan_lower == "nifty_15min_buy":
             target = round(price * 1.0045)
             sl = round(price * 0.9975)
@@ -112,11 +115,6 @@ def chartink_webhook():
         elif scan_lower == "nifty_15min_sell":
             target = round(price * 0.9955)
             sl = round(price * 1.0025)
-
-        else:
-            price = int(price)
-            sl = int(round(price * 0.98))
-            target = int(round(price * 1.05))
 
         stock_lines.append(
             f"{idx}. *{s}* — ₹{int(price)}\n"
@@ -127,7 +125,7 @@ def chartink_webhook():
     stock_block = "\n".join(stock_lines)
 
     # ---------------------------------------------------
-    # SEND TO TELEGRAM
+    # SEND FULL ALERT TO TELEGRAM
     # ---------------------------------------------------
     send_telegram_message(
         f"📢 *ChartInk Alert Triggered*\n\n"

@@ -283,11 +283,11 @@ def chartink_webhook():
     side = "BUY" if scan == "nifty_15min_buy" else "SELL"
 
     if side == "BUY":
-        target = round(price * 1.0045)
-        sl = round(price * 0.9975)
+        target = round(price * 1.0045, 1)
+        sl = round(price * 0.9975, 1)
     else:
-        target = round(price * 0.9955)
-        sl = round(price * 1.0025)
+        target = round(price * 0.9955, 1)
+        sl = round(price * 1.0025, 1)
 
     uid = str(uuid.uuid4())[:8]
 

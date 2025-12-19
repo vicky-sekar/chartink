@@ -288,23 +288,6 @@ def chartink_webhook():
     price = float(data.get("trigger_prices", "0").split(",")[0])
     triggered_at = data.get("triggered_at", "")
 
-    # NON-TRADING SCANS
-    if scan not in ["nifty_15min_buy", "nifty_15min_sell"]:
-        send_telegram_message("ping", CHAT_ID_DEFAULT)
-        return jsonify({"status": "ping"})
-
-    # ⛔ SYSTEM INDIA TIME CHECK
-    if datetime.now(IST).time() >= dtime(14, 30):
-        send_telegram_message("⛔ No trade allowed after 2:30 PM", CHAT_ID_MAIN)
-        return jsonify({"status": "failed", "reason": "after_2_30_pm"})
-
-    # ⛔ TOKEN CHECK
-    if not SAVED_REQUEST_TOKEN or not SAVED_ACCESS_TOKEN:
-        send_telegram_message("⚠️ RequestToken / AccessToken missing!", CHAT_ID_MAIN)
-        return jsonify({"status": "failed", "reason": "token_missing"})
-
-
-
     side = "BUY" if scan == "nifty_15min_buy" else "SELL"
 
     if side == "BUY":
@@ -336,6 +319,21 @@ def chartink_webhook():
         f"🛑 Stop Loss: ₹{sl}",
         CHAT_ID_MAIN
     )
+
+    # NON-TRADING SCANS
+    if scan not in ["nifty_15min_buy", "nifty_15min_sell"]:
+        send_telegram_message("ping", CHAT_ID_DEFAULT)
+        return jsonify({"status": "ping"})
+
+    # ⛔ SYSTEM INDIA TIME CHECK
+    if datetime.now(IST).time() >= dtime(14, 30):
+        send_telegram_message("⛔ No trade allowed after 2:30 PM", CHAT_ID_MAIN)
+        return jsonify({"status": "failed", "reason": "after_2_30_pm"})
+
+    # ⛔ TOKEN CHECK
+    if not SAVED_REQUEST_TOKEN or not SAVED_ACCESS_TOKEN:
+        send_telegram_message("⚠️ RequestToken / AccessToken missing!", CHAT_ID_MAIN)
+        return jsonify({"status": "failed", "reason": "token_missing"})
 
     threading.Thread(
         target=pseudo_bracket,

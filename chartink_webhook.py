@@ -302,6 +302,16 @@ def chartink_webhook():
         CHAT_ID_MAIN
     )
 
+    OPEN_TRADES[uid] = {
+        "scan": scan,
+        "side": side,
+        "price": price,
+        "target": target,
+        "sl": sl,
+        "created": triggered_at,
+        "status": "INIT"
+    }
+
     if not SAVED_REQUEST_TOKEN:
         SAVED_REQUEST_TOKEN =get_request_token()
         send_telegram_message("⚠️ RequestToken missing!", CHAT_ID_MAIN)
@@ -317,15 +327,6 @@ def chartink_webhook():
         send_telegram_message("⛔ No trade allowed after 2:30 PM", CHAT_ID_MAIN)
         return jsonify({"status": "failed", "reason": "time_blocked"})
 
-    OPEN_TRADES[uid] = {
-        "scan": scan,
-        "side": side,
-        "price": price,
-        "target": target,
-        "sl": sl,
-        "created": triggered_at,
-        "status": "INIT"
-    }
 
     threading.Thread(
         target=pseudo_bracket,

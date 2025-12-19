@@ -4,7 +4,6 @@ import threading
 import logging
 from datetime import datetime, time as dtime
 from zoneinfo import ZoneInfo
-import tzdata
 
 from flask import Flask, request, jsonify, render_template_string
 import requests
@@ -31,6 +30,8 @@ SAVED_ACCESS_TOKEN = None
 OPEN_TRADES = {}
 COMPLETED_TRADES = {}
 FAILED_TRADES = {}
+
+# uid -> True (only while pseudo_bracket thread is alive)
 RUNNING_THREADS = {}
 
 # ==================================================
@@ -52,6 +53,7 @@ DEFAULT_QTY = 200
 TELEGRAM_BOT_TOKEN = "6574679913:AAEiUSOAoAArSvVaZ09Mc8uaisJHJN2JKHo"
 CHAT_ID_MAIN = "-1001960176951"
 CHAT_ID_DEFAULT = "-4891195470"
+
 
 # ==================================================
 # HELPERS
@@ -163,11 +165,12 @@ def cancel_order(exch_id):
 
 
 # ==================================================
-# PSEUDO BRACKET ENGINE
+# PSEUDO BRACKET ENGINE (THREAD)
 # ==================================================
 def pseudo_bracket(uid, side, price):
     try:
         RUNNING_THREADS[uid] = True
+        logger.info(f"Thread started for {uid}")
 
         entry_id = f"ENTRY_{uid}"
         sl_id = f"SL_{uid}"
@@ -175,7 +178,7 @@ def pseudo_bracket(uid, side, price):
 
         OPEN_TRADES[uid]["status"] = "ENTRY_PLACED"
 
-        # ENTRY ORDER
+        # ENTRY
         place_order({
             "head": {"key": APP_KEY},
             "body": {
@@ -275,84 +278,20 @@ def pseudo_bracket(uid, side, price):
 
     finally:
         RUNNING_THREADS.pop(uid, None)
+        logger.info(f"Thread ended for {uid}")
 
 
 # ==================================================
-# CHARTINK WEBHOOK
+# MANUAL THREAD EXIT (ONLY THREADS)
 # ==================================================
-@app.route("/chartink", methods=["POST"])
-def chartink_webhook():
-    data = request.json or {}
+@app.route("/exit-thread/<uid>")
+def exit_thread(uid):
+    if uid in RUNNING_THREADS:
+        RUNNING_THREADS[uid] = False
+        logger.info(f"Manual exit requested for {uid}")
+        return jsonify({"status": "exit_requested", "uid": uid})
 
-    scan = data.get("scan_name", "").lower()
-    price = float(data.get("trigger_prices", "0").split(",")[0])
-    triggered_at = data.get("triggered_at", "")
-
-    # NON-TRADING SCANS
-    if scan not in ["nifty_15min_buy", "nifty_15min_sell"]:
-        send_telegram_message("ping", CHAT_ID_DEFAULT)
-        return jsonify({"status": "ping"})
-
-    side = "BUY" if scan == "nifty_15min_buy" else "SELL"
-
-    if side == "BUY":
-        target = round(price * 1.0045, 1)
-        sl = round(price * 0.9975, 1)
-    else:
-        target = round(price * 0.9955, 1)
-        sl = round(price * 1.0025, 1)
-
-    uid = str(uuid.uuid4())[:8]
-
-    OPEN_TRADES[uid] = {
-        "scan": scan,
-        "side": side,
-        "price": price,
-        "target": target,
-        "sl": sl,
-        "created": triggered_at,
-        "status": "INIT"
-    }
-
-    send_telegram_message(
-        f"📢 *ChartInk Alert Triggered*\n\n"
-        f"📄 Scan: {scan}\n"
-        f"⏰ Time: {triggered_at}\n"
-        f"🧭 Side: {side}\n"
-        f"💰 Price: ₹{price}\n"
-        f"🎯 Target: ₹{target}\n"
-        f"🛑 Stop Loss: ₹{sl}",
-        CHAT_ID_MAIN
-    )
-
-    
-
-    # ⛔ SYSTEM INDIA TIME CHECK
-    if datetime.now(IST).time() >= dtime(14, 30):
-        send_telegram_message("⛔ No trade allowed after 2:30 PM", CHAT_ID_MAIN)
-        return jsonify({"status": "failed", "reason": "after_2_30_pm"})
-
-    # ⛔ TOKEN CHECK
-    if not SAVED_REQUEST_TOKEN or not SAVED_ACCESS_TOKEN:
-        send_telegram_message("⚠️ RequestToken / AccessToken missing!", CHAT_ID_MAIN)
-        return jsonify({"status": "failed", "reason": "token_missing"})
-
-    threading.Thread(
-        target=pseudo_bracket,
-        args=(uid, side, price),
-        daemon=True
-    ).start()
-
-    return jsonify({"status": "started", "uid": uid})
-
-
-# ==================================================
-# MANUAL THREAD EXIT
-# ==================================================
-@app.route("/exit/<uid>")
-def exit_trade(uid):
-    RUNNING_THREADS[uid] = False
-    return jsonify({"status": "exit_requested", "uid": uid})
+    return jsonify({"error": "No running thread for this UID"}), 404
 
 
 # ==================================================
@@ -365,15 +304,29 @@ def dashboard():
 
     <h2>🟢 Open Trades</h2>
     <table border=1 cellpadding=6>
-      <tr><th>UID</th><th>Side</th><th>Status</th><th>Target</th><th>SL</th><th>Created</th><th>Action</th></tr>
+      <tr><th>UID</th><th>Side</th><th>Status</th><th>Target</th><th>SL</th><th>Created</th></tr>
       {% for k,v in open.items() %}
       <tr>
         <td>{{k}}</td><td>{{v.side}}</td><td>{{v.status}}</td>
         <td>{{v.target}}</td><td>{{v.sl}}</td><td>{{v.created}}</td>
-        <td><a href="/exit/{{k}}">Exit</a></td>
       </tr>
       {% endfor %}
     </table>
+
+    <h2>🧵 Running Threads</h2>
+    {% if threads %}
+    <table border=1 cellpadding=6>
+      <tr><th>UID</th><th>Action</th></tr>
+      {% for k in threads %}
+      <tr>
+        <td>{{k}}</td>
+        <td><a href="/exit-thread/{{k}}">Stop Thread</a></td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+      <p>✅ No running threads</p>
+    {% endif %}
 
     <h2>🟡 Completed Trades</h2>
     <table border=1 cellpadding=6>
@@ -396,13 +349,6 @@ def dashboard():
       </tr>
       {% endfor %}
     </table>
-
-    <h2>🧵 Running Threads</h2>
-    <ul>
-      {% for k in threads %}
-        <li>{{k}}</li>
-      {% endfor %}
-    </ul>
     """
     return render_template_string(
         html,

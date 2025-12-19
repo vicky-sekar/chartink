@@ -3,23 +3,28 @@ import time
 import threading
 import logging
 from datetime import datetime, time as dtime
+from zoneinfo import ZoneInfo
+import tzdata
+
 from flask import Flask, request, jsonify, render_template_string
 import requests
 
 app = Flask(__name__)
 
-# --------------------------------
+# ==================================================
 # LOGGING
-# --------------------------------
+# ==================================================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s"
 )
 logger = logging.getLogger(__name__)
 
-# --------------------------------
+IST = ZoneInfo("Asia/Kolkata")
+
+# ==================================================
 # GLOBAL STORAGE
-# --------------------------------
+# ==================================================
 SAVED_REQUEST_TOKEN = None
 SAVED_ACCESS_TOKEN = None
 
@@ -28,9 +33,9 @@ COMPLETED_TRADES = {}
 FAILED_TRADES = {}
 RUNNING_THREADS = {}
 
-# --------------------------------
+# ==================================================
 # 5PAISA CONFIG
-# --------------------------------
+# ==================================================
 BASE_URL = "https://Openapi.5paisa.com/VendorsAPI/Service1.svc"
 
 APP_KEY = "qkr0d0BxUgqoZTnzVcwMtFurR1spsKnZ"
@@ -41,16 +46,16 @@ CLIENT_CODE = "52609055"
 DEFAULT_SCRIP_CODE = 10576
 DEFAULT_QTY = 200
 
-# --------------------------------
+# ==================================================
 # TELEGRAM
-# --------------------------------
+# ==================================================
 TELEGRAM_BOT_TOKEN = "6574679913:AAEiUSOAoAArSvVaZ09Mc8uaisJHJN2JKHo"
 CHAT_ID_MAIN = "-1001960176951"
 CHAT_ID_DEFAULT = "-4891195470"
 
-# --------------------------------
+# ==================================================
 # HELPERS
-# --------------------------------
+# ==================================================
 def headers():
     return {
         "Content-Type": "application/json",
@@ -59,37 +64,31 @@ def headers():
 
 
 def send_telegram_message(text, chat_id):
-    if not TELEGRAM_BOT_TOKEN:
+    if not TELEGRAM_BOT_TOKEN or not chat_id:
         return
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    requests.get(url, params={
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "Markdown",
-        "disable_web_page_preview": True
-    })
-
-
-def parse_triggered_time(triggered_at: str) -> dtime:
-    """
-    Handles:
-    2025-01-18 14:15:00
-    2025-01-18T14:15:00
-    """
     try:
-        return datetime.fromisoformat(triggered_at).time()
-    except Exception:
-        return datetime.strptime(triggered_at, "%Y-%m-%d %H:%M:%S").time()
+        requests.get(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            params={
+                "chat_id": chat_id,
+                "text": text,
+                "parse_mode": "Markdown",
+                "disable_web_page_preview": True
+            },
+            timeout=5
+        )
+    except Exception as e:
+        logger.error(f"Telegram error: {e}")
 
 
-# --------------------------------
+# ==================================================
 # AUTH
-# --------------------------------
+# ==================================================
 @app.route("/auth/callback")
 def auth_callback():
     global SAVED_REQUEST_TOKEN
     SAVED_REQUEST_TOKEN = request.args.get("RequestToken")
-    logger.info(f"RequestToken saved")
+    logger.info("RequestToken saved")
     return jsonify({"request_token": SAVED_REQUEST_TOKEN})
 
 
@@ -125,9 +124,9 @@ def get_access_token():
     return jsonify({"access_token": SAVED_ACCESS_TOKEN})
 
 
-# --------------------------------
-# ORDER APIS
-# --------------------------------
+# ==================================================
+# ORDER APIs
+# ==================================================
 def place_order(payload):
     return requests.post(
         f"{BASE_URL}/V1/PlaceOrderRequest",
@@ -148,7 +147,8 @@ def get_order_status(remote_id):
     return requests.post(
         f"{BASE_URL}/V2/OrderStatus",
         json=payload,
-        headers=headers()
+        headers=headers(),
+        timeout=10
     ).json()
 
 
@@ -157,23 +157,25 @@ def cancel_order(exch_id):
     return requests.post(
         f"{BASE_URL}/V1/CancelOrderRequest",
         json=payload,
-        headers=headers()
+        headers=headers(),
+        timeout=10
     ).json()
 
 
-# --------------------------------
+# ==================================================
 # PSEUDO BRACKET ENGINE
-# --------------------------------
+# ==================================================
 def pseudo_bracket(uid, side, price):
     try:
         RUNNING_THREADS[uid] = True
+
         entry_id = f"ENTRY_{uid}"
         sl_id = f"SL_{uid}"
         tgt_id = f"TGT_{uid}"
 
         OPEN_TRADES[uid]["status"] = "ENTRY_PLACED"
 
-        # ENTRY
+        # ENTRY ORDER
         place_order({
             "head": {"key": APP_KEY},
             "body": {
@@ -191,6 +193,7 @@ def pseudo_bracket(uid, side, price):
         # WAIT MAX 5 MIN
         start = time.time()
         filled = False
+
         while time.time() - start < 300 and RUNNING_THREADS.get(uid):
             s = get_order_status(entry_id)
             orders = s["body"].get("OrdStatusResLst", [])
@@ -201,7 +204,7 @@ def pseudo_bracket(uid, side, price):
 
         if not filled:
             send_telegram_message(
-                "⚠️ Entry not filled (may be failed / partially filled)",
+                "⚠️ Entry order not filled (may be failed / partially filled)",
                 CHAT_ID_MAIN
             )
             FAILED_TRADES[uid] = OPEN_TRADES.pop(uid)
@@ -243,7 +246,7 @@ def pseudo_bracket(uid, side, price):
         })
 
         # MONITOR
-        while datetime.now().time() < dtime(15, 10) and RUNNING_THREADS.get(uid):
+        while datetime.now(IST).time() < dtime(15, 10) and RUNNING_THREADS.get(uid):
             sl_s = get_order_status(sl_id)["body"].get("OrdStatusResLst", [])
             tgt_s = get_order_status(tgt_id)["body"].get("OrdStatusResLst", [])
 
@@ -269,34 +272,38 @@ def pseudo_bracket(uid, side, price):
         FAILED_TRADES[uid] = OPEN_TRADES.pop(uid, {})
         FAILED_TRADES[uid]["status"] = "FAILED"
         FAILED_TRADES[uid]["error"] = str(e)
+
     finally:
         RUNNING_THREADS.pop(uid, None)
 
 
-# --------------------------------
+# ==================================================
 # CHARTINK WEBHOOK
-# --------------------------------
+# ==================================================
 @app.route("/chartink", methods=["POST"])
 def chartink_webhook():
-    data = request.json
+    data = request.json or {}
 
     scan = data.get("scan_name", "").lower()
     price = float(data.get("trigger_prices", "0").split(",")[0])
     triggered_at = data.get("triggered_at", "")
 
-    trig_time = parse_triggered_time(triggered_at)
+    # NON-TRADING SCANS
+    if scan not in ["nifty_15min_buy", "nifty_15min_sell"]:
+        send_telegram_message("ping", CHAT_ID_DEFAULT)
+        return jsonify({"status": "ping"})
 
-    if trig_time >= dtime(14, 30):
+    # ⛔ SYSTEM INDIA TIME CHECK
+    if datetime.now(IST).time() >= dtime(14, 30):
         send_telegram_message("⛔ No trade allowed after 2:30 PM", CHAT_ID_MAIN)
         return jsonify({"status": "failed", "reason": "after_2_30_pm"})
 
+    # ⛔ TOKEN CHECK
     if not SAVED_REQUEST_TOKEN or not SAVED_ACCESS_TOKEN:
         send_telegram_message("⚠️ RequestToken / AccessToken missing!", CHAT_ID_MAIN)
         return jsonify({"status": "failed", "reason": "token_missing"})
 
-    if scan not in ["nifty_15min_buy", "nifty_15min_sell"]:
-        send_telegram_message("ping", CHAT_ID_DEFAULT)
-        return jsonify({"status": "ping"})
+
 
     side = "BUY" if scan == "nifty_15min_buy" else "SELL"
 
@@ -339,25 +346,25 @@ def chartink_webhook():
     return jsonify({"status": "started", "uid": uid})
 
 
-# --------------------------------
+# ==================================================
 # MANUAL THREAD EXIT
-# --------------------------------
+# ==================================================
 @app.route("/exit/<uid>")
 def exit_trade(uid):
     RUNNING_THREADS[uid] = False
     return jsonify({"status": "exit_requested", "uid": uid})
 
 
-# --------------------------------
-# UI DASHBOARD
-# --------------------------------
+# ==================================================
+# DASHBOARD
+# ==================================================
 @app.route("/")
 def dashboard():
     html = """
     <h1>📊 Trade Dashboard</h1>
 
     <h2>🟢 Open Trades</h2>
-    <table border=1>
+    <table border=1 cellpadding=6>
       <tr><th>UID</th><th>Side</th><th>Status</th><th>Target</th><th>SL</th><th>Created</th><th>Action</th></tr>
       {% for k,v in open.items() %}
       <tr>
@@ -369,7 +376,7 @@ def dashboard():
     </table>
 
     <h2>🟡 Completed Trades</h2>
-    <table border=1>
+    <table border=1 cellpadding=6>
       <tr><th>UID</th><th>Side</th><th>Status</th><th>Target</th><th>SL</th><th>Created</th></tr>
       {% for k,v in done.items() %}
       <tr>
@@ -380,7 +387,7 @@ def dashboard():
     </table>
 
     <h2>🔴 Failed Trades</h2>
-    <table border=1>
+    <table border=1 cellpadding=6>
       <tr><th>UID</th><th>Side</th><th>Status</th><th>Target</th><th>SL</th><th>Created</th></tr>
       {% for k,v in failed.items() %}
       <tr>
@@ -392,9 +399,9 @@ def dashboard():
 
     <h2>🧵 Running Threads</h2>
     <ul>
-    {% for k in threads %}
-      <li>{{k}}</li>
-    {% endfor %}
+      {% for k in threads %}
+        <li>{{k}}</li>
+      {% endfor %}
     </ul>
     """
     return render_template_string(
@@ -406,8 +413,8 @@ def dashboard():
     )
 
 
-# --------------------------------
+# ==================================================
 # RUN
-# --------------------------------
+# ==================================================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080, debug=True)

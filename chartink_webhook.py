@@ -288,6 +288,11 @@ def chartink_webhook():
     price = float(data.get("trigger_prices", "0").split(",")[0])
     triggered_at = data.get("triggered_at", "")
 
+    # NON-TRADING SCANS
+    if scan not in ["nifty_15min_buy", "nifty_15min_sell"]:
+        send_telegram_message("ping", CHAT_ID_DEFAULT)
+        return jsonify({"status": "ping"})
+
     side = "BUY" if scan == "nifty_15min_buy" else "SELL"
 
     if side == "BUY":
@@ -320,10 +325,7 @@ def chartink_webhook():
         CHAT_ID_MAIN
     )
 
-    # NON-TRADING SCANS
-    if scan not in ["nifty_15min_buy", "nifty_15min_sell"]:
-        send_telegram_message("ping", CHAT_ID_DEFAULT)
-        return jsonify({"status": "ping"})
+    
 
     # ⛔ SYSTEM INDIA TIME CHECK
     if datetime.now(IST).time() >= dtime(14, 30):

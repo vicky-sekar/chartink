@@ -299,9 +299,14 @@ def chartink_webhook():
 
     stocks = data.get("stocks", [])
 
-    # 🔥 FIX 1: normalize stocks (string → list)
+    # 🔥 FIX 1: normalize stocks
+    # string -> split by comma
     if isinstance(stocks, str):
-        stocks = [stocks]
+        stocks = [s.strip() for s in stocks.split(",") if s.strip()]
+
+    # list but contains single comma string
+    elif isinstance(stocks, list) and len(stocks) == 1 and isinstance(stocks[0], str) and "," in stocks[0]:
+        stocks = [s.strip() for s in stocks[0].split(",") if s.strip()]
 
     if scan in ["dummy"]:
         send_telegram_message("ping", CHAT_ID_DEFAULT)
@@ -309,21 +314,27 @@ def chartink_webhook():
 
     created_uids = []
 
+    # -----------------------------
+    # BUILD TELEGRAM MESSAGE
+    # -----------------------------
+    message_lines = [
+        "📢 *ChartInk Alert*",
+        f"Scan: {scan}",
+        f"Time: {triggered_at}",
+        ""
+    ]
+
     for idx, stock in enumerate(stocks):
         try:
             # -----------------------------
             # SYMBOL HANDLING
             # -----------------------------
             if isinstance(stock, dict):
-                nsecode = stock.get("nsecode", "")
-                name = stock.get("name", "")
+                nsecode = stock.get("nsecode", "").strip()
+                name = stock.get("name", "").strip()
             else:
-                nsecode = stock
-                name = stock
-
-            # 🔥 FIX 2: safety strip
-            nsecode = str(nsecode).strip()
-            name = str(name).strip()
+                nsecode = str(stock).strip()
+                name = nsecode
 
             # -----------------------------
             # PRICE HANDLING
@@ -346,30 +357,30 @@ def chartink_webhook():
 
             created_uids.append(uid)
 
-            # -----------------------------
-            # TELEGRAM (PER STOCK)
-            # -----------------------------
-            send_telegram_message(
-                f"📢 *ChartInk Alert*\n"
-                f"Symbol: `{nsecode}`\n"
-                f"Scan: {scan}\n"
-                f"Time: {triggered_at}\n"
-                f"Price: {price}\n",
-                CHAT_ID_MAIN
+            # add to telegram message
+            message_lines.append(
+                f"Symbol {idx + 1}: `{nsecode}`  Price: `{price}`"
             )
 
-            time.sleep(0.35)  # avoid Telegram flood
-
         except Exception as e:
-            print("Telegram error:", e)
+            print("Processing error:", e)
             traceback.print_exc()
             continue
+
+    # -----------------------------
+    # SEND ONE TELEGRAM MESSAGE
+    # -----------------------------
+    send_telegram_message(
+        "\n".join(message_lines),
+        CHAT_ID_MAIN
+    )
 
     return jsonify({
         "status": "started",
         "count": len(created_uids),
         "uids": created_uids
     })
+
 
 
 

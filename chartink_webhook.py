@@ -299,6 +299,10 @@ def chartink_webhook():
 
     stocks = data.get("stocks", [])
 
+    # 🔥 FIX 1: normalize stocks (string → list)
+    if isinstance(stocks, str):
+        stocks = [stocks]
+
     if scan in ["dummy"]:
         send_telegram_message("ping", CHAT_ID_DEFAULT)
         return jsonify({"status": "ping"})
@@ -316,6 +320,10 @@ def chartink_webhook():
             else:
                 nsecode = stock
                 name = stock
+
+            # 🔥 FIX 2: safety strip
+            nsecode = str(nsecode).strip()
+            name = str(name).strip()
 
             # -----------------------------
             # PRICE HANDLING
@@ -350,18 +358,19 @@ def chartink_webhook():
                 CHAT_ID_MAIN
             )
 
-            time.sleep(0.35)  # 🚨 IMPORTANT: avoid Telegram flood
+            time.sleep(0.35)  # avoid Telegram flood
 
         except Exception as e:
             print("Telegram error:", e)
             traceback.print_exc()
-            continue   # ✅ do NOT break loop
+            continue
 
     return jsonify({
         "status": "started",
         "count": len(created_uids),
         "uids": created_uids
     })
+
 
 
 # ==================================================

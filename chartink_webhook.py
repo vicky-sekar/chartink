@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, request, jsonify, render_template_string
 import requests
+import traceback
 
 app = Flask(__name__)
 
@@ -291,56 +292,76 @@ def chartink_webhook():
     data = request.json or {}
 
     scan = data.get("scan_name", "").lower()
-    price = float(data.get("trigger_prices", "0").split(",")[0])
     triggered_at = data.get("triggered_at", "")
 
-    # NON-TRADING
-    if scan not in ["nifty_15min_buy", "nifty_15min_sell"]:
+    prices = data.get("trigger_prices", "")
+    price_list = [p.strip() for p in prices.split(",") if p.strip()]
+
+    stocks = data.get("stocks", [])
+
+    if scan in ["dummy"]:
         send_telegram_message("ping", CHAT_ID_DEFAULT)
         return jsonify({"status": "ping"})
 
+    created_uids = []
 
+    for idx, stock in enumerate(stocks):
+        try:
+            # -----------------------------
+            # SYMBOL HANDLING
+            # -----------------------------
+            if isinstance(stock, dict):
+                nsecode = stock.get("nsecode", "")
+                name = stock.get("name", "")
+            else:
+                nsecode = stock
+                name = stock
 
-    side = "BUY" if scan == "nifty_15min_buy" else "SELL"
+            # -----------------------------
+            # PRICE HANDLING
+            # -----------------------------
+            try:
+                price = float(price_list[idx])
+            except (IndexError, ValueError):
+                price = 0.0
 
-    target = round(price * (1.0045 if side == "BUY" else 0.9955), 1)
-    sl = round(price * (0.9975 if side == "BUY" else 1.0025), 1)
+            uid = str(uuid.uuid4())[:8]
 
-    uid = str(uuid.uuid4())[:8]
+            OPEN_TRADES[uid] = {
+                "scan": scan,
+                "nsecode": nsecode,
+                "name": name,
+                "price": price,
+                "created": triggered_at,
+                "status": "INIT"
+            }
 
-    OPEN_TRADES[uid] = {
-        "scan": scan,
-        "side": side,
-        "price": price,
-        "target": target,
-        "sl": sl,
-        "created": triggered_at,
-        "status": "INIT"
-    }
+            created_uids.append(uid)
 
-    send_telegram_message(
-        f"📢 *ChartInk Alert*\n"
-        f"Scan: {scan}\n"
-        f"Time: {triggered_at}\n"
-        f"Side: {side}\n"
-        f"Price: {price}\n"
-        f"Target: {target}\n"
-        f"SL: {sl}",
-        CHAT_ID_MAIN
-    )
+            # -----------------------------
+            # TELEGRAM (PER STOCK)
+            # -----------------------------
+            send_telegram_message(
+                f"📢 *ChartInk Alert*\n"
+                f"Symbol: `{nsecode}`\n"
+                f"Scan: {scan}\n"
+                f"Time: {triggered_at}\n"
+                f"Price: {price}\n",
+                CHAT_ID_MAIN
+            )
 
-    # AFTER 2:30 PM → BLOCK
-    if datetime.now(IST).time() >= dtime(14, 30):
-        send_telegram_message("⛔ No trade allowed after 2:30 PM", CHAT_ID_MAIN)
-        return jsonify({"status": "failed", "reason": "after_2_30_pm"})
+            time.sleep(0.35)  # 🚨 IMPORTANT: avoid Telegram flood
 
-    # TOKEN CHECK
-    if not SAVED_REQUEST_TOKEN or not SAVED_ACCESS_TOKEN:
-        send_telegram_message("⚠️ Token missing", CHAT_ID_MAIN)
-        return jsonify({"status": "failed", "reason": "token_missing"})
+        except Exception as e:
+            print("Telegram error:", e)
+            traceback.print_exc()
+            continue   # ✅ do NOT break loop
 
-    threading.Thread(target=pseudo_bracket, args=(uid,), daemon=True).start()
-    return jsonify({"status": "started", "uid": uid})
+    return jsonify({
+        "status": "started",
+        "count": len(created_uids),
+        "uids": created_uids
+    })
 
 
 # ==================================================
@@ -363,11 +384,11 @@ def dashboard():
 
     <h2>🟢 Open Trades / Alert Trades</h2>
     <table border=1 cellpadding=6>
-      <tr><th>UID</th><th>Side</th><th>Status</th><th>Target</th><th>SL</th><th>Created</th></tr>
+      <tr><th>UID</th><th>symbol</th><th>scan</th><th>Created</th></tr>
       {% for k,v in open.items() %}
       <tr>
-        <td>{{k}}</td><td>{{v.side}}</td><td>{{v.status}}</td>
-        <td>{{v.target}}</td><td>{{v.sl}}</td><td>{{v.created}}</td>
+        <td>{{k}}</td><td>{{v.name}}</td><td>{{v.scan}}</td>
+        <td>{{v.created}}</td>
       </tr>
       {% endfor %}
     </table>
